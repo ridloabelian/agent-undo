@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+.agent-undo/
+*.db
+*.db-wal
+*.db-shm
+.DS_Store
+*.tsbuildinfo

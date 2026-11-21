@@ -1,0 +1,120 @@
+version: "0.1"
+defaultDecision: require_approval
+defaultGraceSeconds: 30
+
+budgets:
+  session:
+    maxSpendUsd: 100
+    maxMutations: 25
+  daily:
+    maxSpendUsd: 500
+    maxMutations: 100
+
+rules:
+  # Block sensitive system and credential files before read/write wildcards.
+  - id: deny-sensitive-files
+    match:
+      tool:
+        - "fs.read_file"
+        - "fs.write_file"
+        - "fs.delete_file"
+      args:
+        path:
+          regex: "(^|/)(\\.env(\\..*)?|\\.ssh(/|$)|id_rsa|etc/passwd)"
+    decision: deny
+    reason: "Access to sensitive credentials or system paths is blocked by policy."
+
+  # Read-only operations execute immediately without consuming mutation budget.
+  - id: allow-read-only-tools
+    match:
+      tool:
+        - "*.list_*"
+        - "*.get_*"
+        - "*.read_*"
+        - "fs.list_dir"
+    decision: allow
+    readOnly: true
+    reason: "Read-only inspection tools execute immediately."
+
+  # High-value or hard-limit financial charges.
+  - id: deny-single-charge-over-1000
+    match:
+      tool: "stripe.create_charge"
+      args:
+        amountCents:
+          gt: 100000
+    decision: deny
+    spendExtractor:
+      arg: amountCents
+      scale: 0.01
+    reason: "Single charges above $1,000 require manual engineering override."
+
+  - id: require-approval-high-charge
+    match:
+      tool: "stripe.create_charge"
+      args:
+        amountCents:
+          gte: 5000
+    decision: require_approval
+    spendExtractor:
+      arg: amountCents
+      scale: 0.01
+    reason: "Charges of $50.00 or more require explicit human approval."
+
+  - id: grace-small-charge
+    match:
+      tool: "stripe.create_charge"
+    decision: grace_window
+    graceSeconds: 30
+    spendExtractor:
+      arg: amountCents
+      scale: 0.01
+    reason: "Small Stripe charges hold for a 30s soft-undo window and support compensating refunds."
+
+  - id: require-approval-refund
+    match:
+      tool: "stripe.refund_charge"
+    decision: require_approval
+    reason: "Manual refunds require human approval."
+
+  # Outbound communication & mailbox safety.
+  - id: require-approval-permanent-email-delete
+    match:
+      tool: "gmail.delete_email"
+      args:
+        permanent: true
+    decision: require_approval
+    reason: "Permanent email deletion requires human approval."
+
+  - id: grace-gmail-mutations
+    match:
+      tool:
+        - "gmail.send_email"
+        - "gmail.delete_email"
+    decision: grace_window
+    graceSeconds: 30
+    reason: "Email actions hold for 30s so humans or agents can undo before delivery."
+
+  # Calendar mutations.
+  - id: grace-calendar-mutations
+    match:
+      tool:
+        - "calendar.create_event"
+        - "calendar.cancel_event"
+    decision: grace_window
+    graceSeconds: 30
+    reason: "Calendar changes hold for 30s before execution and support compensating rollback."
+
+  # Filesystem mutations.
+  - id: grace-fs-write
+    match:
+      tool: "fs.write_file"
+    decision: grace_window
+    graceSeconds: 30
+    reason: "File writes hold for 30s and capture pre-write snapshots for byte-for-byte rollback."
+
+  - id: require-approval-fs-delete
+    match:
+      tool: "fs.delete_file"
+    decision: require_approval
+    reason: "File deletions require explicit human approval and snapshot the deleted file."
