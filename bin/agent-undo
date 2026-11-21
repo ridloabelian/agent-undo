@@ -1,0 +1,18 @@
+#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const binDir = path.dirname(fileURLToPath(import.meta.url));
+const distEntry = path.resolve(binDir, '../dist/cli/main.js');
+
+if (!fs.existsSync(distEntry)) {
+  console.error(
+    'agent-undo has not been built yet. Run "npm run build" first.',
+  );
+  process.exit(1);
+}
+
+const mod = await import(pathToFileURL(distEntry).href);
+const exitCode = await mod.runCli(process.argv.slice(2));
+process.exitCode = exitCode;
